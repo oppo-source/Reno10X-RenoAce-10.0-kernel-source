@@ -1,0 +1,6 @@
+#for AWINIC AW8697 Haptic
+ifeq ($(OPPO_TARGET_DEVICE),MSM_19081)
+obj-$(CONFIG_AW8697_HAPTIC) += aw8697_19081.o
+else
+obj-$(CONFIG_AW8697_HAPTIC) += aw8697_18115.o
+endif
