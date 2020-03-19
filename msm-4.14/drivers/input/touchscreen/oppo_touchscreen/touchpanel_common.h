@@ -30,13 +30,8 @@
 #include <soc/oppo/device_info.h>
 #include <linux/delay.h>
 #include <linux/jiffies.h>
-#include "touchpanel_prevention.h"
 #include "util_interface/touch_interfaces.h"
 #include "tp_devices.h"
-
-#ifdef CONFIG_TOUCHPANEL_ALGORITHM
-#include "touchpanel_algorithm.h"
-#endif
 
 #ifdef CONFIG_TOUCHPANEL_MTK_PLATFORM
 #include<mt-plat/mtk_boot_common.h>
@@ -643,7 +638,6 @@ struct touchpanel_data {
     struct earsense_proc_operations *earsense_ops;
     struct register_info reg_info;                      /*debug node for register length*/
     struct black_gesture_test gesture_test;             /*gesture test struct*/
-    struct kernel_grip_info *grip_info;                 /*grip setting and resources*/
 
     void                  *chip_data;                   /*Chip Related data*/
     void                  *private_data;                /*Reserved Private data*/
@@ -664,11 +658,6 @@ struct touchpanel_data {
     u8 *gesture_buf;
     bool gesture_debug_sta;
 #endif // end of CONFIG_OPPO_TP_APK
-
-#ifdef CONFIG_TOUCHPANEL_ALGORITHM
-    struct touch_algorithm_info *algo_info;
-#endif
-
 };
 
 #ifdef CONFIG_OPPO_TP_APK
@@ -724,13 +713,9 @@ struct oppo_touchpanel_operations {
     void (*tp_queue_work_prepare) (void);       /*If the tp ic need do something, use this!*/
     int    (*set_report_point_first)  (void *chip_data, uint32_t enable);
     int (*get_report_point_first)  (void *chip_data);
-    void (*enable_kernel_grip)  (void *chip_data, struct kernel_grip_info *grip_info);          /*enable kernel grip in fw*/
     int (*enable_single_tap)  (void *chip_data, bool enable);
     bool (*tp_irq_throw_away)  (void *chip_data);
     void (*rate_white_list_ctrl) (void *chip_data, int value);
-#ifdef CONFIG_TOUCHPANEL_ALGORITHM
-    int  (*special_points_report)     (void *chip_data, struct point_info *points, int max_num);
-#endif
 };
 
 struct debug_info_proc_operations {

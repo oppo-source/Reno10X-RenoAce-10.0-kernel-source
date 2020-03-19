@@ -114,26 +114,7 @@ __attribute__((weak)) int reconfig_power_control(struct touchpanel_data *ts)
 {
     return 0;
 }
-__attribute__((weak)) int notify_prevention_handle(struct kernel_grip_info *grip_info, int obj_attention, struct point_info *points)
-{
-    return obj_attention;
-}
 
-#ifdef CONFIG_TOUCHPANEL_ALGORITHM
-__attribute__((weak)) int touch_algorithm_handle(struct touchpanel_data *ts, int obj_attention, struct point_info *points)
-{
-    return obj_attention;
-}
-__attribute__((weak)) void oppo_touch_algorithm_init(struct touchpanel_data *ts)
-{
-    return;
-}
-
-__attribute__((weak)) void set_algorithm_direction(struct touchpanel_data *ts, int dir)
-{
-    return;
-}
-#endif
 
 
 
@@ -148,8 +129,6 @@ __attribute__((weak)) void set_algorithm_direction(struct touchpanel_data *ts, i
  */
 void operate_mode_switch(struct touchpanel_data *ts)
 {
-    struct kernel_grip_info *grip_info = ts->grip_info;
-
     if (!ts->ts_ops->mode_switch) {
         TPD_INFO("not support ts_ops->mode_switch callback\n");
         return;
@@ -212,10 +191,6 @@ void operate_mode_switch(struct touchpanel_data *ts)
 
         if (ts->headset_pump_support)
             ts->ts_ops->mode_switch(ts->chip_data, MODE_HEADSET, ts->is_headset_checked);
-
-        if (ts->kernel_grip_support && ts->ts_ops->enable_kernel_grip) {
-            ts->ts_ops->enable_kernel_grip(ts->chip_data, grip_info);
-        }
 
         ts->ts_ops->mode_switch(ts->chip_data, MODE_NORMAL, true);
     }
@@ -733,43 +708,6 @@ static int touch_elimination_caculate(struct touchpanel_data *ts, int obj_attent
     return obj_attention;
 }
 
-#ifdef CONFIG_TOUCHPANEL_ALGORITHM
-static void special_touch_handle(struct touchpanel_data *ts)
-{
-    int obj_attention = 0;
-    int i = 0;
-    static int touch_report_num = 0;
-    struct point_info points[10];
-    if (!ts->ts_ops->special_points_report) {
-        return;
-    }
-    obj_attention = ts->ts_ops->special_points_report(ts->chip_data, points, ts->max_num);
-    if (obj_attention <= 0) {
-        return;
-    }
-
-    for (i = 0; i < ts->max_num; i++) {
-        if (((obj_attention & TOUCH_BIT_CHECK) >> i) & 0x01 && (points[i].status == 0)) // buf[0] == 0 is wrong point, no process
-            continue;
-        if (((obj_attention & TOUCH_BIT_CHECK) >> i) & 0x01 && (points[i].status != 0)) {
-            TPD_DEBUG("special point report\n");
-#ifdef TYPE_B_PROTOCOL
-            input_mt_slot(ts->input_dev, i);
-            input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 1);
-#endif
-            touch_report_num++;
-            tp_touch_down(ts, points[i], touch_report_num, i);
-            SET_BIT(ts->irq_slot, (1 << i));
-
-        }
-    }
-
-    input_sync(ts->input_dev);
-
-}
-#endif
-
-
 static void tp_touch_handle(struct touchpanel_data *ts)
 {
     int i = 0;
@@ -802,11 +740,6 @@ static void tp_touch_handle(struct touchpanel_data *ts)
 
     mutex_lock(&ts->report_mutex);
 
-
-
-    if (ts->kernel_grip_support) {
-        obj_attention = notify_prevention_handle(ts->grip_info, obj_attention, points);
-    }
     if (ts->health_monitor_support) {
         touch_elimination_caculate(ts, obj_attention, points);
     }
@@ -855,10 +788,6 @@ static void tp_touch_handle(struct touchpanel_data *ts)
 #ifdef TYPE_B_PROTOCOL
             else {
                 input_mt_slot(ts->input_dev, i);
-                if (ts->kernel_grip_support && ts->grip_info && ts->grip_info->eli_reject_status[i]
-                    && !(ts->grip_info->grip_disable_level & (1 << GRIP_DISABLE_UP2CANCEL))) {
-                    input_report_abs(ts->input_dev, ABS_MT_PRESSURE, UP2CANCEL_PRESSURE_VALUE);
-                }
                 input_mt_report_slot_state(ts->input_dev, MT_TOOL_FINGER, 0);
             }
 #endif
@@ -2183,9 +2112,6 @@ static ssize_t proc_dir_control_write(struct file *file, const char __user *buff
     if (ts->ts_ops->set_touch_direction) {
         ts->ts_ops->set_touch_direction(ts->chip_data, temp);
     }
-#ifdef CONFIG_TOUCHPANEL_ALGORITHM
-    set_algorithm_direction(ts,temp);
-#endif
 
     //just for compatible for old grip version
     if (ts->default_hor_area) {             //if configed
@@ -3457,14 +3383,6 @@ static int init_touchpanel_proc(struct touchpanel_data *ts)
 
     //create debug_info node
     init_debug_info_proc(ts);
-#ifdef CONFIG_TOUCHPANEL_ALGORITHM
-    oppo_touch_algorithm_init(ts);
-#endif
-
-    //create kernel grip proc file
-    if (ts->kernel_grip_support) {
-        init_kernel_grip_proc(ts->prEntry_tp, ts->grip_info);
-    }
 
     return ret;
 }
@@ -3710,10 +3628,7 @@ static int tp_main_register_read_func(struct seq_file *s, void *v)
     seq_printf(s, "es_enable:%d\n", ts->es_enable);
     seq_printf(s, "touch_count:%d\n", ts->touch_count);
     debug_info_ops->main_register_read(s, ts->chip_data);
-    if (ts->kernel_grip_support) {
-        seq_printf(s, "kernel_grip_info:\n");
-        kernel_grip_print_func(s, ts->grip_info);
-    }
+
     mutex_unlock(&ts->mutex);
     if (ts->int_mode == BANNABLE) {
         enable_irq(ts->irq);
@@ -5777,14 +5692,6 @@ int register_common_touch_device(struct touchpanel_data *pdata)
         }
     }
 
-    //initial kernel grip parameter
-    if (ts->kernel_grip_support) {
-        ts->grip_info = kernel_grip_init(ts->dev);
-        if (!ts->grip_info) {
-            TPD_INFO("kernel grip init failed.\n");
-        }
-    }
-
     //step 21 : createproc proc files interface
     init_touchpanel_proc(ts);
 
@@ -6054,15 +5961,6 @@ static void tp_resume(struct device *dev)
 
     if (ts->lcd_wait_tp_resume_finished_support) {
         ts->resume_finished = 0;
-    }
-
-    if (ts->kernel_grip_support) {
-        if (ts->grip_info) {
-            kernel_grip_reset(ts->grip_info);
-        } else {
-            ts->grip_info = kernel_grip_init(ts->dev);
-            init_kernel_grip_proc(ts->prEntry_tp, ts->grip_info);
-        }
     }
 
     queue_work(ts->speedup_resume_wq, &ts->speed_up_work);
